@@ -106,6 +106,6 @@ just run
 Manual build:
 
 ```bash
-cc -std=c23 -Wall -Wextra -Wpedantic -Werror -Isrc -o simple/simple \
+cc -std=c2x -Wall -Wextra -Wpedantic -Werror -Isrc -o simple/simple \
   simple/simple.c src/toml.c
 ```
