@@ -1,8 +1,8 @@
 /* Copyright (c) 2024-2025, CK Tan.
  * https://github.com/cktan/tomlc17/blob/main/LICENSE
  */
-#ifndef TOMLC17_H
-#define TOMLC17_H
+#ifndef TOML_H
+#define TOML_H
 
 /*
  *  USAGE:
@@ -15,7 +15,6 @@
  *
  */
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -85,7 +84,7 @@ struct toml_result_t {
  * IMPORTANT: src[] must be a NUL terminated string! The len parameter
  * does not include the NUL terminator.
  */
-extern toml_result_t toml_parse(const char *src, int len);
+[[nodiscard]] extern toml_result_t toml_parse(const char *src, int len);
 
 /**
  * Parse a toml file. Returns a toml_result which must be freed
@@ -93,13 +92,13 @@ extern toml_result_t toml_parse(const char *src, int len);
  *
  * IMPORTANT: you are still responsible to fclose(fp).
  */
-extern toml_result_t toml_parse_file(FILE *fp);
+[[nodiscard]] extern toml_result_t toml_parse_file(FILE *fp);
 
 /**
  * Parse a toml file. Returns a toml_result which must be freed
  * using toml_free() eventually.
  */
-extern toml_result_t toml_parse_file_ex(const char *fname);
+[[nodiscard]] extern toml_result_t toml_parse_file_ex(const char *fname);
 
 /**
  * Release the result.
@@ -110,7 +109,7 @@ extern void toml_free(toml_result_t result);
  * Find a key in a toml_table. Return the value of the key if found,
  * or a TOML_UNKNOWN otherwise.
  */
-extern toml_datum_t toml_get(toml_datum_t table, const char *key);
+[[nodiscard]] extern toml_datum_t toml_get(toml_datum_t table, const char *key);
 
 /**
  * Locate a value starting from a toml_table. Return the value of the key if
@@ -119,15 +118,16 @@ extern toml_datum_t toml_get(toml_datum_t table, const char *key);
  * Note: the multipart-key is separated by DOT, and must not have any escape
  * chars. The maximum length of the multipart_key must not exceed 127 bytes.
  */
-extern toml_datum_t toml_seek(toml_datum_t table, const char *multipart_key);
+[[nodiscard]] extern toml_datum_t toml_seek(toml_datum_t table,
+                                            const char *multipart_key);
 
 /**
  * OBSOLETE: use toml_get() instead.
  * Find a key in a toml_table. Return the value of the key if found,
  * or a TOML_UNKNOWN otherwise. (
  */
-static inline toml_datum_t toml_table_find(toml_datum_t table,
-                                           const char *key) {
+[[nodiscard]] static inline toml_datum_t toml_table_find(toml_datum_t table,
+                                                         const char *key) {
   return toml_get(table, key);
 }
 
@@ -150,16 +150,17 @@ static inline toml_datum_t toml_table_find(toml_datum_t table,
  *     else:
  *         override
  */
-extern toml_result_t toml_merge(const toml_result_t *r1,
-                                const toml_result_t *r2);
+[[nodiscard]] extern toml_result_t toml_merge(const toml_result_t *r1,
+                                              const toml_result_t *r2);
 
 /**
  *  Check if two results are the same. Dictinary and array orders are
  *  sensitive.
  */
-extern bool toml_equiv(const toml_result_t *r1, const toml_result_t *r2);
+[[nodiscard]] extern bool toml_equiv(const toml_result_t *r1,
+                                     const toml_result_t *r2);
 
-/* Options that override tomlc17 defaults globally */
+/* Options that override toml defaults globally */
 typedef struct toml_option_t toml_option_t;
 struct toml_option_t {
   bool check_utf8; // Check all chars are valid utf8; default: false.
@@ -172,7 +173,7 @@ struct toml_option_t {
  * toml_option_t and override values before calling
  * toml_set_option().
  */
-extern toml_option_t toml_default_option(void);
+[[nodiscard]] extern toml_option_t toml_default_option();
 
 /**
  * Set toml options globally. Do this ONLY IF you are not satisfied with the
@@ -180,4 +181,4 @@ extern toml_option_t toml_default_option(void);
  */
 extern void toml_set_option(toml_option_t opt);
 
-#endif // TOMLC17_H
+#endif // TOML_H

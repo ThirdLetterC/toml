@@ -11,14 +11,14 @@ TOML v1.1 in c17.
 ## Usage
 
 See
-[tomlc17.h](https://github.com/cktan/tomlc17/blob/main/src/tomlc17.h)
+[toml.h](https://github.com/cktan/tomlc17/blob/main/src/toml.h)
 for details.
 
 Parsing a toml document creates a tree data structure in memory that
 reflects the document. Information can be extracted by navigating this
 data structure.
 
-Note: you can simply include `tomlc17.h` and `tomlc17.c` in your
+Note: you can simply include `toml.h` and `toml.c` in your
 projects without building the library.
 
 The following is a simple example:
@@ -32,7 +32,7 @@ The following is a simple example:
  * port = [8080, 8181, 8282]
  *
  */
-#include "../src/tomlc17.h"
+#include "../src/toml.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,7 +129,7 @@ invalid tests: 466 passed,  0 failed
 
 ## Installing
 
-The install command will copy `tomlc17.h`, `tomlcpp.hpp` and `libtomlc17.a` to the `$prefix/include` and `$prefix/lib` directories.
+The install command will copy `toml.h`, `tomlcpp.hpp` and `libtomlc17.a` to the `$prefix/include` and `$prefix/lib` directories.
 
 ```bash
 unset DEBUG

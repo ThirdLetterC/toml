@@ -1,4 +1,4 @@
-# justfile for tomlc17
+# justfile for toml
 
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
@@ -13,7 +13,7 @@ format: fmt
 
 # Build the simple example program
 build:
-  {{CC}} {{CFLAGS}} -o simple/simple simple/simple.c src/tomlc17.c
+  {{CC}} {{CFLAGS}} -o simple/simple simple/simple.c src/toml.c
 
 # Build and run the simple example
 run: build

@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "tomlc17.h"
+#include "toml.h"
 
 static void error(const char *msg, const char *msg1) {
   fprintf(stderr, "ERROR: %s%s\n", msg, msg1 ? msg1 : "");
@@ -23,7 +23,7 @@ int main() {
 
   // Check for parse error
   if (!result.ok) {
-    error(result.errmsg, 0);
+    error(result.errmsg, nullptr);
   }
 
   // Extract values
@@ -32,19 +32,19 @@ int main() {
 
   // Print server.host
   if (host.type != TOML_STRING) {
-    error("missing or invalid 'server.host' property in config", 0);
+    error("missing or invalid 'server.host' property in config", nullptr);
   }
   printf("server.host = %s\n", host.u.s);
 
   // Print server.port
   if (port.type != TOML_ARRAY) {
-    error("missing or invalid 'server.port' property in config", 0);
+    error("missing or invalid 'server.port' property in config", nullptr);
   }
   printf("server.port = [");
   for (int i = 0; i < port.u.arr.size; i++) {
     toml_datum_t elem = port.u.arr.elem[i];
     if (elem.type != TOML_INT64) {
-      error("server.port element not an integer", 0);
+      error("server.port element not an integer", nullptr);
     }
     printf("%s%d", i ? ", " : "", (int)elem.u.int64);
   }

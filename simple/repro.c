@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "tomlc17.h"
+#include "toml.h"
 
-const char *PATH = "/tmp/t.toml";
+static constexpr const char *PATH = "/tmp/t.toml";
 
 static void setup() {
-  const char *text =
+  [[maybe_unused]] const char *text =
       "[default]\n"
       "\n"
       "[wayland_displays.\"$WAYLAND_DISPLAY\"]\n"
@@ -14,8 +14,6 @@ static void setup() {
       "[[clipboards.Default.mime_type_groups]]\n"
       "group = [ \"TEXT\", \"STRING\", \"UTF8_STRING\", \"text/plain\" ]\n"
       "xxxx xx xx\n";
-
-  (void)text;
   FILE *fp = fopen(PATH, "w");
   fprintf(fp, "%s", text);
   fclose(fp);
