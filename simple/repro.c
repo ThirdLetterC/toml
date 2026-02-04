@@ -5,8 +5,12 @@
 
 static constexpr const char *PATH = "/tmp/t.toml";
 
-static void setup() {
-  [[maybe_unused]] const char *text =
+static void error(const char *msg, const char *msg1) {
+  fprintf(stderr, "ERROR: %s%s\n", msg, msg1 ? msg1 : "");
+}
+
+[[nodiscard]] static bool setup() {
+  const char *text =
       "[default]\n"
       "\n"
       "[wayland_displays.\"$WAYLAND_DISPLAY\"]\n"
@@ -15,32 +19,51 @@ static void setup() {
       "group = [ \"TEXT\", \"STRING\", \"UTF8_STRING\", \"text/plain\" ]\n"
       "xxxx xx xx\n";
   FILE *fp = fopen(PATH, "w");
-  fprintf(fp, "%s", text);
-  fclose(fp);
+  if (!fp) {
+    error("fopen failed: ", PATH);
+    return false;
+  }
+  if (fputs(text, fp) == EOF) {
+    error("failed to write fixture: ", PATH);
+    fclose(fp);
+    return false;
+  }
+  if (fclose(fp) != 0) {
+    error("failed to close fixture: ", PATH);
+    return false;
+  }
+  return true;
 }
 
-static void run() {
-
-  toml_result_t root = toml_parse_file_ex(PATH);
+[[nodiscard]] static bool run() {
+  auto root = toml_parse_file_ex(PATH);
 
   if (!root.ok) {
     fprintf(stderr, "toml_parse_file_ex: %s\n", root.errmsg);
     toml_free(root);
-    exit(-1);
+    return false;
   }
 
-  toml_datum_t wayland_displays =
+  auto wayland_displays =
       toml_seek(root.toptab, "main.wayland_displays");
-  toml_datum_t clipboards = toml_seek(root.toptab, "main.clipboards");
+  auto clipboards = toml_seek(root.toptab, "main.clipboards");
 
   printf("wayland_displays: %d\n", wayland_displays.type);
   printf("clipboards: %d\n", clipboards.type);
 
   toml_free(root);
+  return true;
 }
 
 int main() {
-  setup();
-  run();
-  return 0;
+  constexpr int kExitOk = 0;
+  constexpr int kExitFail = 1;
+
+  if (!setup()) {
+    return kExitFail;
+  }
+  if (!run()) {
+    return kExitFail;
+  }
+  return kExitOk;
 }

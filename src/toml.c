@@ -583,6 +583,7 @@ toml_result_t toml_merge(const toml_result_t *r1, const toml_result_t *r2) {
   return ret;
 
 bail:
+  datum_free(&ret.toptab);
   pool_destroy(pool);
   snprintf(ret.errmsg, sizeof(ret.errmsg), "%s", reason);
   return ret;
