@@ -1,5 +1,5 @@
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "tomlc17.h"
 
@@ -38,7 +38,7 @@ static void run() {
   printf("wayland_displays: %d\n", wayland_displays.type);
   printf("clipboards: %d\n", clipboards.type);
 
-      toml_free(root);
+  toml_free(root);
 }
 
 int main() {

@@ -119,8 +119,7 @@ extern toml_datum_t toml_get(toml_datum_t table, const char *key);
  * Note: the multipart-key is separated by DOT, and must not have any escape
  * chars. The maximum length of the multipart_key must not exceed 127 bytes.
  */
-extern toml_datum_t toml_seek(toml_datum_t table,
-                                   const char *multipart_key);
+extern toml_datum_t toml_seek(toml_datum_t table, const char *multipart_key);
 
 /**
  * OBSOLETE: use toml_get() instead.
@@ -152,7 +151,7 @@ static inline toml_datum_t toml_table_find(toml_datum_t table,
  *         override
  */
 extern toml_result_t toml_merge(const toml_result_t *r1,
-                                     const toml_result_t *r2);
+                                const toml_result_t *r2);
 
 /**
  *  Check if two results are the same. Dictinary and array orders are

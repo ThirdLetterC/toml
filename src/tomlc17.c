@@ -1824,7 +1824,7 @@ static int scan_multiline_string(scanner_t *sp, token_t *tok) {
       }
       if (ch != '\n') {
         // Got a backslash followed by whitespace, followed by some char
-	// before newline
+        // before newline
         return RETERROR(sp->ebuf, sp->lineno, "bad escape char in string");
       }
       // fallthru

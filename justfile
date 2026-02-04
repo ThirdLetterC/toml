@@ -7,7 +7,7 @@ CFLAGS := "-std=c2x -D_XOPEN_SOURCE=600 -D_POSIX_C_SOURCE=200112L -Wall -Wextra 
 
 # Format all C sources with clang-format
 fmt:
-  find src simple test -type f \( -name '*.c' -o -name '*.h' \) -print0 | xargs -0 clang-format -i
+  find src simple -type f \( -name '*.c' -o -name '*.h' \) -print0 | xargs -0 clang-format -i
 
 format: fmt
 
