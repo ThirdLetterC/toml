@@ -1,9 +1,8 @@
 #include <stdio.h>
-#include <stdlib.h>
 
 #include "toml.h"
 
-static constexpr const char *PATH = "/tmp/t.toml";
+static constexpr const char PATH[] = "/tmp/t.toml";
 
 static void error(const char *msg, const char *msg1) {
   fprintf(stderr, "ERROR: %s%s\n", msg, msg1 ? msg1 : "");
