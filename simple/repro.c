@@ -44,8 +44,7 @@ static void error(const char *msg, const char *msg1) {
     return false;
   }
 
-  auto wayland_displays =
-      toml_seek(root.toptab, "main.wayland_displays");
+  auto wayland_displays = toml_seek(root.toptab, "main.wayland_displays");
   auto clipboards = toml_seek(root.toptab, "main.clipboards");
 
   printf("wayland_displays: %d\n", wayland_displays.type);

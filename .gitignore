@@ -4,3 +4,6 @@
 *.a
 
 simple/simple
+
+.zig-cache
+zig-out
