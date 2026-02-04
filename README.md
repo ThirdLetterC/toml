@@ -1,27 +1,22 @@
-# tomlc17
+# toml-c
 
-TOML v1.1 in c17.
+TOML v1.1 parser in C23.
 
-* Compatible with C99.
-* Compatible with C++.
-* Implements [C++20 Accessors](README_CXX.md).
+* Requires a C23-capable compiler (`-std=c23` or `-std=c2x`).
 * Implements [TOML v1.1](https://toml.io/en/v1.1.0).
-* Passes the [standard test suites](https://github.com/toml-lang/toml-test/).
 
 ## Usage
 
-See
-[toml.h](https://github.com/cktan/tomlc17/blob/main/src/toml.h)
-for details.
+Parsing a TOML document creates a tree data structure rooted at
+`toml_result_t::toptab`. Use `toml_get()` for a single key lookup or
+`toml_seek()` for dotted multipart keys. Always call `toml_free(result)`
+to release the associated memory.
 
-Parsing a toml document creates a tree data structure in memory that
-reflects the document. Information can be extracted by navigating this
-data structure.
+You can simply compile `src/toml.c` and include `src/toml.h` in your
+project without building a separate library.
+See `src/toml.h` for the full API surface and data types.
 
-Note: you can simply include `toml.h` and `toml.c` in your
-projects without building the library.
-
-The following is a simple example:
+The following is a simple example (mirrors `simple/simple.c`):
 
 ```c
 /*
@@ -32,10 +27,9 @@ The following is a simple example:
  * port = [8080, 8181, 8282]
  *
  */
-#include "../src/toml.h"
-#include <errno.h>
+#include "toml.h"
 #include <stdlib.h>
-#include <string.h>
+#include <stdio.h>
 
 static void error(const char *msg, const char *msg1) {
   fprintf(stderr, "ERROR: %s%s\n", msg, msg1 ? msg1 : "");
@@ -43,33 +37,35 @@ static void error(const char *msg, const char *msg1) {
 }
 
 int main() {
+  constexpr const char *PATH = "simple.toml";
+
   // Parse the toml file
-  toml_result_t result = toml_parse_file_ex("simple.toml");
+  auto result = toml_parse_file_ex(PATH);
 
   // Check for parse error
   if (!result.ok) {
-    error(result.errmsg, 0);
+    error(result.errmsg, nullptr);
   }
 
   // Extract values
-  toml_datum_t host = toml_seek(result.toptab, "server.host");
-  toml_datum_t port = toml_seek(result.toptab, "server.port");
+  auto host = toml_seek(result.toptab, "server.host");
+  auto port = toml_seek(result.toptab, "server.port");
 
   // Print server.host
   if (host.type != TOML_STRING) {
-    error("missing or invalid 'server.host' property in config", 0);
+    error("missing or invalid 'server.host' property in config", nullptr);
   }
   printf("server.host = %s\n", host.u.s);
 
   // Print server.port
   if (port.type != TOML_ARRAY) {
-    error("missing or invalid 'server.port' property in config", 0);
+    error("missing or invalid 'server.port' property in config", nullptr);
   }
   printf("server.port = [");
   for (int i = 0; i < port.u.arr.size; i++) {
-    toml_datum_t elem = port.u.arr.elem[i];
+    auto elem = port.u.arr.elem[i];
     if (elem.type != TOML_INT64) {
-      error("server.port element not an integer", 0);
+      error("server.port element not an integer", nullptr);
     }
     printf("%s%d", i ? ", " : "", (int)elem.u.int64);
   }
@@ -84,54 +80,16 @@ int main() {
 
 ## Building
 
-For debug build:
-```bash
-export DEBUG=1
-make
-```
-
-For release build:
-```bash
-unset DEBUG
-make
-```
-
-## Running tests
-
-We run the official `toml-test` as described
-[here](https://github.com/toml-lang/toml-test). Refer to
-[this
-section](https://github.com/toml-lang/toml-test?tab=readme-ov-file#installation)
-for prerequisites to run the tests.
-
-The following command invokes the tests:
+With `just`:
 
 ```bash
-make test
+just build
+just run
 ```
 
-As of May 7, 2025, all tests passed for TOML v1.0:
-
-```
-toml-test v0001-01-01 [/home/cktan/p/tomlc17/test/stdtest/driver]: using embedded tests
-  valid tests: 185 passed,  0 failed
-invalid tests: 371 passed,  0 failed
-```
-
-As of Dec 25, 2025, all tests passed for TOML v1.1:
-
-```
-toml-test v0001-01-01 [/home/cktan/p/tomlc17/test/stdtest/driver] [no encoder]
-  valid tests: 214 passed,  0 failed
-encoder tests: no encoder command given
-invalid tests: 466 passed,  0 failed
-```
-
-## Installing
-
-The install command will copy `toml.h`, `tomlcpp.hpp` and `libtomlc17.a` to the `$prefix/include` and `$prefix/lib` directories.
+Manual build:
 
 ```bash
-unset DEBUG
-make clean install prefix=/usr/local
+cc -std=c23 -Wall -Wextra -Wpedantic -Werror -Isrc -o simple/simple \
+  simple/simple.c src/toml.c
 ```
