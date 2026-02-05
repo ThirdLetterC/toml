@@ -1,4 +1,4 @@
-# toml-c
+# toml
 
 TOML v1.1 parser in C23.
 
