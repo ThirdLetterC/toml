@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include "toml.h"
+#include "toml/toml.h"
 
 static constexpr const char PATH[] = "/tmp/t.toml";
 

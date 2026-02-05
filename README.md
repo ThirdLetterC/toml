@@ -12,11 +12,11 @@ Parsing a TOML document creates a tree data structure rooted at
 `toml_seek()` for dotted multipart keys. Always call `toml_free(result)`
 to release the associated memory.
 
-You can simply compile `src/toml.c` and include `src/toml.h` in your
+You can simply compile `src/toml.c` and include `include/toml/toml.h` in your
 project without building a separate library.
-See `src/toml.h` for the full API surface and data types.
+See `include/toml/toml.h` for the full API surface and data types.
 
-The following is a simple example (mirrors `simple/simple.c`):
+The following is a simple example (mirrors `examples/simple.c`):
 
 ```c
 /*
@@ -27,7 +27,7 @@ The following is a simple example (mirrors `simple/simple.c`):
  * port = [8080, 8181, 8282]
  *
  */
-#include "toml.h"
+#include "toml/toml.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -106,6 +106,6 @@ just run
 Manual build:
 
 ```bash
-cc -std=c2x -Wall -Wextra -Wpedantic -Werror -Isrc -o simple/simple \
-  simple/simple.c src/toml.c
+cc -std=c2x -Wall -Wextra -Wpedantic -Werror -Iinclude -o examples/simple \
+  examples/simple.c src/toml.c
 ```

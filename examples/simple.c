@@ -10,7 +10,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#include "toml.h"
+#include "toml/toml.h"
 
 static void error(const char *msg, const char *msg1) {
   fprintf(stderr, "ERROR: %s%s\n", msg, msg1 ? msg1 : "");

@@ -10,3 +10,4 @@
 -Wno-missing-field-initializers
 -fPIC
 -Isrc
+-Iinclude

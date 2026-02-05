@@ -58,6 +58,7 @@ pub fn build(b: *std.Build) void {
     });
 
     module.addIncludePath(b.path("src"));
+    module.addIncludePath(b.path("include"));
     var c_flags = std.ArrayList([]const u8).empty;
     c_flags.appendSlice(b.allocator, &.{
         "-std=c23",
@@ -85,18 +86,18 @@ pub fn build(b: *std.Build) void {
     }
 
     module.addCSourceFiles(.{
-        .files = &.{ "simple/simple.c", "src/toml.c" },
+        .files = &.{ "examples/simple.c", "src/toml.c" },
         .flags = c_flags.items,
     });
 
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
-    run_cmd.setCwd(b.path("simple"));
+    run_cmd.setCwd(b.path("examples"));
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
 
-    const run_step = b.step("run", "Run the simple example");
+    const run_step = b.step("run", "Run the example");
     run_step.dependOn(&run_cmd.step);
 }

@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "toml.h"
+#include "toml/toml.h"
 
 const toml_datum_t DATUM_ZERO = {0};
 
