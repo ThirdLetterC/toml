@@ -1096,7 +1096,9 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
   for (;;) {
     // skip ENDL
     do {
-      DO(scan_value(&pp->scanner, &tok));
+      if (scan_value(&pp->scanner, &tok)) {
+        goto bail;
+      }
     } while (tok.toktyp == TOK_ENDL);
 
     // If got an RBRACK: done!
@@ -1110,14 +1112,16 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
         need_comma = 0;
         continue;
       }
-      return RETERROR(pp->ebuf, tok.lineno,
-                      "syntax error while parsing array: unexpected comma");
+      RETERROR(pp->ebuf, tok.lineno,
+               "syntax error while parsing array: unexpected comma");
+      goto bail;
     }
 
     // Not a comma, but need a comma: error!
     if (need_comma) {
-      return RETERROR(pp->ebuf, tok.lineno,
-                      "syntax error while parsing array: missing comma");
+      RETERROR(pp->ebuf, tok.lineno,
+               "syntax error while parsing array: missing comma");
+      goto bail;
     }
 
     // This is a valid value!
@@ -1126,11 +1130,14 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
     const char *reason;
     toml_datum_t *pelem = arr_emplace(ret_datum, &reason);
     if (!pelem) {
-      return RETERROR(pp->ebuf, tok.lineno, "while parsing array: %s", reason);
+      RETERROR(pp->ebuf, tok.lineno, "while parsing array: %s", reason);
+      goto bail;
     }
 
     // Parse the value and save into array.
-    DO(parse_val(pp, tok, pelem));
+    if (parse_val(pp, tok, pelem)) {
+      goto bail;
+    }
 
     // Need comma before the next value.
     need_comma = 1;
@@ -1139,6 +1146,10 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
   // Set the INLINE flag for all things in this array.
   set_flag_recursive(ret_datum, FLAG_INLINED);
   return 0;
+
+bail:
+  datum_free(ret_datum);
+  return -1;
 }
 
 // Parse an inline table.
@@ -1151,7 +1162,9 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
 
   // loop until RBRACE
   for (;;) {
-    DO(scan_key(&pp->scanner, &tok));
+    if (scan_key(&pp->scanner, &tok)) {
+      goto bail;
+    }
 
     // Got an RBRACE: done!
     if (tok.toktyp == TOK_RBRACE) {
@@ -1173,7 +1186,8 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
         was_comma = true;
         continue;
       }
-      return RETERROR(pp->ebuf, tok.lineno, "unexpected comma");
+      RETERROR(pp->ebuf, tok.lineno, "unexpected comma");
+      goto bail;
     }
 
     // Newline not allowed in inline table.
@@ -1185,50 +1199,64 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
 
     // Not a comma, but need a comma: error!
     if (need_comma) {
-      return RETERROR(pp->ebuf, tok.lineno, "missing comma");
+      RETERROR(pp->ebuf, tok.lineno, "missing comma");
+      goto bail;
     }
 
     // Get the keyparts
     keypart_t keypart = {0};
     int keylineno = tok.lineno;
-    DO(parse_key(pp, tok, &keypart));
+    if (parse_key(pp, tok, &keypart)) {
+      goto bail;
+    }
 
     // Descend to one keypart before last
     span_t lastkeypart = keypart.span[--keypart.nspan];
     toml_datum_t *tab =
         descend_keypart(pp, keylineno, ret_datum, &keypart, false);
     if (!tab) {
-      return -1;
+      goto bail;
     }
 
     // If tab is a previously declared inline table: error.
     if (tab->flag & FLAG_INLINED) {
-      return RETERROR(pp->ebuf, tok.lineno, "inline table cannot be extended");
+      RETERROR(pp->ebuf, tok.lineno, "inline table cannot be extended");
+      goto bail;
     }
 
     // We are explicitly defining it now.
     tab->flag |= FLAG_EXPLICIT;
 
     // match EQUAL
-    DO(scan_value(&pp->scanner, &tok));
+    if (scan_value(&pp->scanner, &tok)) {
+      goto bail;
+    }
 
     if (tok.toktyp != TOK_EQUAL) {
       if (tok.toktyp == TOK_ENDL) {
-        return RETERROR(pp->ebuf, tok.lineno, "unexpected newline");
+        RETERROR(pp->ebuf, tok.lineno, "unexpected newline");
       } else {
-        return RETERROR(pp->ebuf, tok.lineno, "missing '='");
+        RETERROR(pp->ebuf, tok.lineno, "missing '='");
       }
+      goto bail;
     }
 
     // obtain the value
-    toml_datum_t value;
-    DO(scan_value(&pp->scanner, &tok));
-    DO(parse_val(pp, tok, &value));
+    toml_datum_t value = DATUM_ZERO;
+    if (scan_value(&pp->scanner, &tok)) {
+      goto bail;
+    }
+    if (parse_val(pp, tok, &value)) {
+      datum_free(&value);
+      goto bail;
+    }
 
     // Add the value to tab.
     const char *reason;
     if (tab_add(tab, lastkeypart, value, &reason)) {
-      return RETERROR(pp->ebuf, tok.lineno, "%s", reason);
+      datum_free(&value);
+      RETERROR(pp->ebuf, tok.lineno, "%s", reason);
+      goto bail;
     }
     need_comma = true;
     was_comma = false;
@@ -1236,6 +1264,10 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
 
   set_flag_recursive(ret_datum, FLAG_INLINED);
   return 0;
+
+bail:
+  datum_free(ret_datum);
+  return -1;
 }
 
 // Parse a value.
@@ -1475,9 +1507,13 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
   }
 
   // Obtain the value
-  toml_datum_t val;
+  toml_datum_t val = DATUM_ZERO;
+  bool has_val = false;
   DO(scan_value(&pp->scanner, &tok));
-  DO(parse_val(pp, tok, &val));
+  if (parse_val(pp, tok, &val)) {
+    goto bail;
+  }
+  has_val = true;
 
   // Locate the last table using keypart[]
   const char *reason;
@@ -1486,13 +1522,15 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
     int j = tab_find(tab, keypart.span[i]);
     if (j < 0) {
       if (i > 0 && (tab->flag & FLAG_EXPLICIT)) {
-        return RETERROR(
+        RETERROR(
             pp->ebuf, keylineno,
             "cannot extend a previously defined table using dotted expression");
+        goto bail;
       }
       toml_datum_t newtab = mkdatum(TOML_TABLE);
       if (tab_add(tab, keypart.span[i], newtab, &reason)) {
-        return RETERROR(pp->ebuf, keylineno, "%s", reason);
+        RETERROR(pp->ebuf, keylineno, "%s", reason);
+        goto bail;
       }
       tab = &tab->u.tab.value[tab->u.tab.size - 1];
       continue;
@@ -1503,30 +1541,42 @@ static void set_flag_recursive(toml_datum_t *datum, uint32_t flag) {
       continue;
     }
     if (value->type == TOML_ARRAY) {
-      return RETERROR(pp->ebuf, keylineno,
-                      "encountered previously declared array '%s'",
-                      keypart.span[i].ptr);
+      RETERROR(pp->ebuf, keylineno,
+               "encountered previously declared array '%s'",
+               keypart.span[i].ptr);
+      goto bail;
     }
-    return RETERROR(pp->ebuf, keylineno, "cannot locate table at '%s'",
-                    keypart.span[i].ptr);
+    RETERROR(pp->ebuf, keylineno, "cannot locate table at '%s'",
+             keypart.span[i].ptr);
+    goto bail;
   }
 
   // Check for disallowed situations.
   if (tab->flag & FLAG_INLINED) {
-    return RETERROR(pp->ebuf, keylineno, "inline table cannot be extended");
+    RETERROR(pp->ebuf, keylineno, "inline table cannot be extended");
+    goto bail;
   }
   if (keypart.nspan > 1 && (tab->flag & FLAG_EXPLICIT)) {
-    return RETERROR(
+    RETERROR(
         pp->ebuf, keylineno,
         "cannot extend a previously defined table using dotted expression");
+    goto bail;
   }
 
   // Add a new key/value for tab.
   if (tab_add(tab, keypart.span[keypart.nspan - 1], val, &reason)) {
-    return RETERROR(pp->ebuf, keylineno, "%s", reason);
+    RETERROR(pp->ebuf, keylineno, "%s", reason);
+    goto bail;
   }
+  has_val = false; // ownership moved to tab
 
   return 0;
+
+bail:
+  if (has_val) {
+    datum_free(&val);
+  }
+  return -1;
 }
 
 // Normalize a LIT/STRING/MLSTRING/LITSTRING/MLLITSTRING
@@ -2320,6 +2370,7 @@ done:
 
     // 1e+01 is also an error
     if (0 != (q = strchr(buffer, 'e'))) {
+      q++; // skip 'e'
       q += (*q == '+' || *q == '-') ? 1 : 0;
       if (q[0] == '0' && isdigit(q[1])) {
         *reason = "leading 0 in numbers";
