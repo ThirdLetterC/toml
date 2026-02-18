@@ -7,3 +7,4 @@ simple/simple
 
 .zig-cache
 zig-out
+_codeql_detected_source_root
