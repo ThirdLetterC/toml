@@ -1,8 +1,7 @@
 /* Copyright (c) 2024-2025, CK Tan.
  * https://github.com/cktan/tomlc17/blob/main/LICENSE
  */
-#ifndef TOML_H
-#define TOML_H
+#pragma once
 
 /*
  *  USAGE:
@@ -180,5 +179,3 @@ struct toml_option_t {
  * defaults.
  */
 extern void toml_set_option(toml_option_t opt);
-
-#endif // TOML_H
