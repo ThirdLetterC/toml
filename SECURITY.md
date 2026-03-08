@@ -30,11 +30,15 @@ how parsed values are trusted, validated, and used.
 
 - The public API returns parse status explicitly through `toml_result_t.ok`.
 - Parse failures produce a bounded error string in `errmsg[200]`.
+- Public parse and lookup entry points reject null pointers and negative
+  buffer lengths with deterministic failure instead of undefined behavior.
 - `toml_parse()` verifies that `src[len]` is the required terminating NUL byte
   before parsing.
 - File parsing reads the file into memory, appends a terminating NUL byte, then
   reuses the same parser path as `toml_parse()`.
 - Memory allocation failures are checked and reported as parse errors.
+- Null allocator hooks passed through `toml_set_option()` are replaced with the
+  default `realloc` and `free` hooks.
 - Duplicate keys, malformed literals, malformed timestamps, unterminated
   strings, and invalid structural forms are rejected.
 - Parser nesting depth is bounded: maximum bracket nesting for arrays is `30`
@@ -86,8 +90,8 @@ available to the caller.
 
 - `examples/simple.c` demonstrates normal API usage and should be treated as a
   usage example, not a hardened frontend.
-- `examples/repro.c` is a local reproduction helper that writes a fixture to
-  `/tmp/t.toml`; it is not part of the installed library interface.
+- `examples/repro.c` is a local reproduction helper that uses `tmpfile()`; it
+  is not part of the installed library interface.
 - There is currently no dedicated `tests/` directory or fuzzing harness in this
   repository.
 

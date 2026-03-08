@@ -2,13 +2,11 @@
 
 #include "toml/toml.h"
 
-static constexpr const char PATH[] = "/tmp/t.toml";
-
 static void error(const char *msg, const char *msg1) {
   fprintf(stderr, "ERROR: %s%s\n", msg, msg1 ? msg1 : "");
 }
 
-[[nodiscard]] static bool setup() {
+[[nodiscard]] static FILE *setup() {
   const char *text =
       "[default]\n"
       "\n"
@@ -17,28 +15,34 @@ static void error(const char *msg, const char *msg1) {
       "[[clipboards.Default.mime_type_groups]]\n"
       "group = [ \"TEXT\", \"STRING\", \"UTF8_STRING\", \"text/plain\" ]\n"
       "xxxx xx xx\n";
-  FILE *fp = fopen(PATH, "w");
+  FILE *fp = tmpfile();
   if (!fp) {
-    error("fopen failed: ", PATH);
-    return false;
+    error("tmpfile failed", nullptr);
+    return nullptr;
   }
   if (fputs(text, fp) == EOF) {
-    error("failed to write fixture: ", PATH);
+    error("failed to write fixture", nullptr);
     fclose(fp);
-    return false;
+    return nullptr;
   }
-  if (fclose(fp) != 0) {
-    error("failed to close fixture: ", PATH);
-    return false;
+  if (fflush(fp) != 0) {
+    error("failed to flush fixture", nullptr);
+    fclose(fp);
+    return nullptr;
   }
-  return true;
+  if (fseek(fp, 0, SEEK_SET) != 0) {
+    error("failed to rewind fixture", nullptr);
+    fclose(fp);
+    return nullptr;
+  }
+  return fp;
 }
 
-[[nodiscard]] static bool run() {
-  auto root = toml_parse_file_ex(PATH);
+[[nodiscard]] static bool run(FILE *fp) {
+  auto root = toml_parse_file(fp);
 
   if (!root.ok) {
-    fprintf(stderr, "toml_parse_file_ex: %s\n", root.errmsg);
+    fprintf(stderr, "toml_parse_file: %s\n", root.errmsg);
     toml_free(root);
     return false;
   }
@@ -56,12 +60,18 @@ static void error(const char *msg, const char *msg1) {
 int main() {
   constexpr int kExitOk = 0;
   constexpr int kExitFail = 1;
+  int rc = kExitFail;
 
-  if (!setup()) {
-    return kExitFail;
+  FILE *fp = setup();
+  if (!fp) {
+    return rc;
   }
-  if (!run()) {
-    return kExitFail;
+  if (!run(fp)) {
+    goto cleanup;
   }
-  return kExitOk;
+  rc = kExitOk;
+
+cleanup:
+  fclose(fp);
+  return rc;
 }

@@ -28,6 +28,53 @@ static toml_option_t toml_option = {false, realloc, free};
   else         \
     (void)0
 
+static inline size_t align8(size_t x) { return (((x) + 7U) & ~((size_t)7)); }
+
+static inline bool is_ctype_arg(int ch) {
+  return 0 <= ch && ch <= UCHAR_MAX;
+}
+
+static inline bool is_ascii_alnum(int ch) {
+  return is_ctype_arg(ch) && isalnum((unsigned char)ch);
+}
+
+static inline bool is_ascii_digit(int ch) {
+  return is_ctype_arg(ch) && isdigit((unsigned char)ch);
+}
+
+static inline int to_ascii_lower(int ch) {
+  return is_ctype_arg(ch) ? tolower((unsigned char)ch) : ch;
+}
+
+static inline int to_ascii_upper(int ch) {
+  return is_ctype_arg(ch) ? toupper((unsigned char)ch) : ch;
+}
+
+static inline bool checked_array_realloc_size(int count, size_t elem_size,
+                                              size_t *ret_size) {
+  if (count < 0 || count == INT_MAX) {
+    return false;
+  }
+  size_t slots = align8((size_t)count + 1U);
+  if (slots > SIZE_MAX / elem_size) {
+    return false;
+  }
+  *ret_size = slots * elem_size;
+  return true;
+}
+
+static inline bool grow_parse_buffer(int current, int *next) {
+  if (current < 0 || current >= INT_MAX - 1) {
+    return false;
+  }
+  size_t grown = (size_t)current + ((size_t)current / 2U) + 1'000U;
+  if (grown > (size_t)(INT_MAX - 1)) {
+    grown = (size_t)(INT_MAX - 1);
+  }
+  *next = (int)grown;
+  return true;
+}
+
 /*
  *  Error buffer
  */
@@ -70,7 +117,7 @@ struct pool_t {
   if (N <= 0) {
     N = 100;  // minimum
   }
-  int totalsz = sizeof(pool_t) + N;
+  size_t totalsz = sizeof(pool_t) + (size_t)N;
   pool_t *pool = MALLOC(totalsz);
   if (!pool) {
     return nullptr;
@@ -90,7 +137,8 @@ static void pool_destroy(pool_t *pool) { FREE(pool); }
  *  success, or nullptr if out of memory.
  */
 [[nodiscard]] static char *pool_alloc(pool_t *pool, int n) {
-  if (pool->top + n > pool->max) {
+  if (!pool || n < 0 || pool->top < 0 || pool->max < 0 ||
+      n > pool->max - pool->top) {
     return nullptr;
   }
   char *ret = pool->buf + pool->top;
@@ -125,8 +173,6 @@ static constexpr uint32_t FLAG_EXPLICIT = 0b100;
 // stack overflow during recursive descent of the parser.
 static constexpr int BRACKET_LEVEL_MAX = 30;
 static constexpr int BRACE_LEVEL_MAX = 30;
-
-static inline size_t align8(size_t x) { return (((x) + 7) & ~7); }
 
 enum toktyp_t {
   TOK_DOT = 1,
@@ -220,15 +266,20 @@ struct parser_t {
                                                const char **reason) {
   assert(tab->type == TOML_TABLE);
   int N = tab->u.tab.size;
+  size_t bytes = 0;
   for (int i = 0; i < N; i++) {
     if (tab->u.tab.len[i] == key.len &&
         0 == memcmp(tab->u.tab.key[i], key.ptr, key.len)) {
       return &tab->u.tab.value[i];
     }
   }
+  if (!checked_array_realloc_size(N, sizeof(*tab->u.tab.key), &bytes)) {
+    *reason = "table is too large";
+    return nullptr;
+  }
   // Expand pkey[], plen[] and value[]
   {
-    char **pkey = REALLOC(tab->u.tab.key, sizeof(*pkey) * align8(N + 1));
+    char **pkey = REALLOC(tab->u.tab.key, bytes);
     if (!pkey) {
       *reason = "out of memory";
       return nullptr;
@@ -236,8 +287,12 @@ struct parser_t {
     tab->u.tab.key = (const char **)pkey;
   }
 
+  if (!checked_array_realloc_size(N, sizeof(*tab->u.tab.len), &bytes)) {
+    *reason = "table is too large";
+    return nullptr;
+  }
   {
-    int *plen = REALLOC(tab->u.tab.len, sizeof(*plen) * align8(N + 1));
+    int *plen = REALLOC(tab->u.tab.len, bytes);
     if (!plen) {
       *reason = "out of memory";
       return nullptr;
@@ -245,9 +300,12 @@ struct parser_t {
     tab->u.tab.len = plen;
   }
 
+  if (!checked_array_realloc_size(N, sizeof(*tab->u.tab.value), &bytes)) {
+    *reason = "table is too large";
+    return nullptr;
+  }
   {
-    toml_datum_t *value =
-        REALLOC(tab->u.tab.value, sizeof(*value) * align8(N + 1));
+    toml_datum_t *value = REALLOC(tab->u.tab.value, bytes);
     if (!value) {
       *reason = "out of memory";
       return nullptr;
@@ -298,7 +356,12 @@ struct parser_t {
                                                const char **reason) {
   assert(arr->type == TOML_ARRAY);
   int n = arr->u.arr.size;
-  toml_datum_t *elem = REALLOC(arr->u.arr.elem, sizeof(*elem) * align8(n + 1));
+  size_t bytes = 0;
+  if (!checked_array_realloc_size(n, sizeof(*arr->u.arr.elem), &bytes)) {
+    *reason = "array is too large";
+    return nullptr;
+  }
+  toml_datum_t *elem = REALLOC(arr->u.arr.elem, bytes);
   if (!elem) {
     *reason = "out of memory";
     return nullptr;
@@ -550,6 +613,10 @@ toml_result_t toml_merge(const toml_result_t *r1, const toml_result_t *r2) {
   const char *reason = "";
   toml_result_t ret = {0};
   pool_t *pool = nullptr;
+  if (!r1 || !r2) {
+    reason = "param error: null result";
+    goto bail;
+  }
   if (!r1->ok) {
     reason = "param error: r1 not ok";
     goto bail;
@@ -558,9 +625,18 @@ toml_result_t toml_merge(const toml_result_t *r1, const toml_result_t *r2) {
     reason = "param error: r2 not ok";
     goto bail;
   }
+  if (!r1->__internal || !r2->__internal) {
+    reason = "param error: invalid internal state";
+    goto bail;
+  }
   {
     pool_t *r1pool = (pool_t *)r1->__internal;
     pool_t *r2pool = (pool_t *)r2->__internal;
+    if (r1pool->top < 0 || r2pool->top < 0 ||
+        r1pool->top > INT_MAX - r2pool->top) {
+      reason = "param error: invalid internal state";
+      goto bail;
+    }
     pool = pool_create(r1pool->top + r2pool->top);
     if (!pool) {
       reason = "out of memory";
@@ -591,6 +667,9 @@ bail:
 
 [[nodiscard]] bool toml_equiv(const toml_result_t *r1,
                               const toml_result_t *r2) {
+  if (!r1 || !r2) {
+    return false;
+  }
   if (!(r1->ok && r2->ok)) {
     return false;
   }
@@ -603,7 +682,7 @@ bail:
  */
 [[nodiscard]] toml_datum_t toml_get(toml_datum_t datum, const char *key) {
   toml_datum_t ret = {0};
-  if (datum.type == TOML_TABLE) {
+  if (datum.type == TOML_TABLE && key != nullptr) {
     int n = datum.u.tab.size;
     const char **pkey = datum.u.tab.key;
     toml_datum_t *pvalue = datum.u.tab.value;
@@ -625,7 +704,7 @@ bail:
  */
 [[nodiscard]] toml_datum_t toml_seek(toml_datum_t table,
                                      const char *multipart_key) {
-  if (table.type != TOML_TABLE) {
+  if (table.type != TOML_TABLE || multipart_key == nullptr) {
     return DATUM_ZERO;
   }
 
@@ -667,7 +746,15 @@ bail:
 /**
  *  Override the current options.
  */
-void toml_set_option(toml_option_t opt) { toml_option = opt; }
+void toml_set_option(toml_option_t opt) {
+  if (!opt.mem_realloc) {
+    opt.mem_realloc = realloc;
+  }
+  if (!opt.mem_free) {
+    opt.mem_free = free;
+  }
+  toml_option = opt;
+}
 
 /**
  *  Free the result returned by toml_parse().
@@ -682,7 +769,11 @@ void toml_free(toml_result_t result) {
  */
 toml_result_t toml_parse_file_ex(const char *fname) {
   toml_result_t result = {0};
-  FILE *fp = fopen(fname, "r");
+  if (!fname) {
+    snprintf(result.errmsg, sizeof(result.errmsg), "fname must not be null");
+    return result;
+  }
+  FILE *fp = fopen(fname, "rb");
   if (!fp) {
     snprintf(result.errmsg, sizeof(result.errmsg), "fopen: %s", fname);
     return result;
@@ -701,25 +792,25 @@ toml_result_t toml_parse_file(FILE *fp) {
   int top, max;  // index into buf[]
   top = max = 0;
 
+  if (!fp) {
+    snprintf(result.errmsg, sizeof(result.errmsg), "fp must not be null");
+    return result;
+  }
+
   // Read file into memory
-  while (!feof(fp)) {
+  for (;;) {
     assert(top <= max);
     if (top == max) {
       // need to extend buf[]
-      int tmpmax = (max * 1.5) + 1000;
-      if (tmpmax < 0) {
-        // the real max is INT_MAX - 1 to account for terminating NUL.
-        if (max < INT_MAX - 1) {
-          tmpmax = INT_MAX - 1;
-        } else {
-          snprintf(result.errmsg, sizeof(result.errmsg),
-                   "file is bigger than %d bytes", INT_MAX - 1);
-          FREE(buf);
-          return result;
-        }
+      int tmpmax = 0;
+      if (!grow_parse_buffer(max, &tmpmax)) {
+        snprintf(result.errmsg, sizeof(result.errmsg),
+                 "file is bigger than %d bytes", INT_MAX - 1);
+        FREE(buf);
+        return result;
       }
       // add an extra byte for terminating NUL
-      char *tmp = REALLOC(buf, tmpmax + 1);
+      char *tmp = REALLOC(buf, (size_t)tmpmax + 1U);
       if (!tmp) {
         snprintf(result.errmsg, sizeof(result.errmsg), "out of memory");
         FREE(buf);
@@ -730,12 +821,21 @@ toml_result_t toml_parse_file(FILE *fp) {
     }
 
     errno = 0;
-    top += fread(buf + top, 1, max - top, fp);
+    size_t nread = fread(buf + top, 1, (size_t)(max - top), fp);
+    if (nread > (size_t)(INT_MAX - top)) {
+      snprintf(result.errmsg, sizeof(result.errmsg), "file is too large");
+      FREE(buf);
+      return result;
+    }
+    top += (int)nread;
     if (ferror(fp)) {
       snprintf(result.errmsg, sizeof(result.errmsg), "%s",
                errno ? strerror(errno) : "Error reading file");
       FREE(buf);
       return result;
+    }
+    if (nread == 0) {
+      break;
     }
   }
   buf[top] = 0;  // NUL terminator
@@ -752,6 +852,19 @@ toml_result_t toml_parse(const char *src, int len) {
   toml_result_t result = {0};
   parser_t parser = {0};
   parser_t *pp = &parser;
+
+  if (!src) {
+    snprintf(result.errmsg, sizeof(result.errmsg), "src must not be null");
+    goto bail;
+  }
+  if (len < 0) {
+    snprintf(result.errmsg, sizeof(result.errmsg), "len must not be negative");
+    goto bail;
+  }
+  if (len > INT_MAX - 10) {
+    snprintf(result.errmsg, sizeof(result.errmsg), "src is too large");
+    goto bail;
+  }
 
   // Check that src is NUL terminated.
   if (src[len]) {
@@ -1787,12 +1900,15 @@ static inline token_t mktoken(scanner_t *sp, toktyp_t typ) {
 #define S_MATCH6(ch) scan_nmatch(sp, (ch), 6)
 
 static inline bool is_valid_char(int ch) {
-  // i.e. (0x20 <= ch && ch <= 0x7e) || (ch & 0x80);
-  return isprint(ch) || (ch & 0x80);
+  if (ch < 0) {
+    return false;
+  }
+  auto uch = (unsigned char)ch;
+  return (0x20 <= uch && uch <= 0x7e) || (uch & 0x80);
 }
 
 static inline bool is_hex_char(int ch) {
-  ch = toupper(ch);
+  ch = to_ascii_upper(ch);
   return ('0' <= ch && ch <= '9') || ('A' <= ch && ch <= 'F');
 }
 
@@ -2074,11 +2190,12 @@ static bool is_valid_timezone(int minute) {
 [[nodiscard]] static int read_int(const char *p, int *ret) {
   const char *pp = p;
   int val = 0;
-  for (; isdigit(*p); p++) {
-    val = val * 10 + (*p - '0');
-    if (val < 0) {
+  for (; is_ascii_digit(*p); p++) {
+    int digit = *p - '0';
+    if (val > (INT_MAX - digit) / 10) {
       return 0;  // overflowed
     }
+    val = val * 10 + digit;
   }
   *ret = val;
   return p - pp;
@@ -2142,12 +2259,12 @@ static bool is_valid_timezone(int minute) {
     return p - pp;
   }
   p++;  // skip the period
-  if (!isdigit(*p)) {
+  if (!is_ascii_digit(*p)) {
     // trailing period
     return 0;
   }
   int micro_factor = 100000;
-  while (isdigit(*p) && micro_factor) {
+  while (is_ascii_digit(*p) && micro_factor) {
     *usec += (*p - '0') * micro_factor;
     micro_factor /= 10;
     p++;
@@ -2234,7 +2351,7 @@ static bool is_valid_timezone(int minute) {
   toktyp_t toktyp = TOK_FIN;
   int lineno = sp->lineno;
   const char *p = buffer;
-  if (isdigit(p[0]) && isdigit(p[1]) && p[2] == ':') {
+  if (is_ascii_digit(p[0]) && is_ascii_digit(p[1]) && p[2] == ':') {
     year = month = day = hour = minute = sec = usec = tz = -1;
     n = read_time(buffer, &hour, &minute, &sec, &usec);
     if (!n) {
@@ -2252,8 +2369,8 @@ static bool is_valid_timezone(int minute) {
   }
   toktyp = TOK_DATE;
   p += n;
-  if (!((p[0] == 'T' || p[0] == ' ' || p[0] == 't') && isdigit(p[1]) &&
-        isdigit(p[2]) && p[3] == ':')) {
+  if (!((p[0] == 'T' || p[0] == ' ' || p[0] == 't') &&
+        is_ascii_digit(p[1]) && is_ascii_digit(p[2]) && p[3] == ':')) {
     goto done;  // date only
   }
 
@@ -2335,11 +2452,11 @@ done:
       }
       int left = (i == 0) ? 0 : buffer[i - 1];
       int right = buffer[i + 1];
-      if (!isdigit(left) && !(base == 16 && is_hex_char(left))) {
+      if (!is_ascii_digit(left) && !(base == 16 && is_hex_char(left))) {
         *reason = "underscore only allowed between digits";
         return -1;
       }
-      if (!isdigit(right) && !(base == 16 && is_hex_char(right))) {
+      if (!is_ascii_digit(right) && !(base == 16 && is_hex_char(right))) {
         *reason = "underscore only allowed between digits";
         return -1;
       }
@@ -2350,12 +2467,13 @@ done:
   // decimal points must be surrounded by digits. Also, convert to lowercase.
   for (int i = 0; buffer[i]; i++) {
     if (buffer[i] == '.') {
-      if (i == 0 || !isdigit(buffer[i - 1]) || !isdigit(buffer[i + 1])) {
+      if (i == 0 || !is_ascii_digit(buffer[i - 1]) ||
+          !is_ascii_digit(buffer[i + 1])) {
         *reason = "decimal point must be surrounded by digits";
         return -1;
       }
     } else if ('A' <= buffer[i] && buffer[i] <= 'Z') {
-      buffer[i] = tolower(buffer[i]);
+      buffer[i] = (char)to_ascii_lower(buffer[i]);
     }
   }
 
@@ -2363,7 +2481,7 @@ done:
     // check for leading 0:  '+01' is an error!
     q = buffer;
     q += (*q == '+' || *q == '-') ? 1 : 0;
-    if (q[0] == '0' && isdigit(q[1])) {
+    if (q[0] == '0' && is_ascii_digit(q[1])) {
       *reason = "leading 0 in numbers";
       return -1;
     }
@@ -2372,7 +2490,7 @@ done:
     if (0 != (q = strchr(buffer, 'e'))) {
       q++;  // skip 'e'
       q += (*q == '+' || *q == '-') ? 1 : 0;
-      if (q[0] == '0' && isdigit(q[1])) {
+      if (q[0] == '0' && is_ascii_digit(q[1])) {
         *reason = "leading 0 in numbers";
         return -1;
       }
@@ -2543,13 +2661,14 @@ done:
 
 // Check if the next token may be TIME
 static inline bool test_time(const char *p, const char *endp) {
-  return &p[2] < endp && isdigit(p[0]) && isdigit(p[1]) && p[2] == ':';
+  return &p[2] < endp && is_ascii_digit(p[0]) && is_ascii_digit(p[1]) &&
+         p[2] == ':';
 }
 
 // Check if the next token may be DATE
 static inline bool test_date(const char *p, const char *endp) {
-  return &p[4] < endp && isdigit(p[0]) && isdigit(p[1]) && isdigit(p[2]) &&
-         isdigit(p[3]) && p[4] == '-';
+  return &p[4] < endp && is_ascii_digit(p[0]) && is_ascii_digit(p[1]) &&
+         is_ascii_digit(p[2]) && is_ascii_digit(p[3]) && p[4] == '-';
 }
 
 // Check if the next token may be BOOL
@@ -2595,7 +2714,8 @@ static bool test_number(const char *p, const char *endp) {
 [[nodiscard]] static int scan_literal(scanner_t *sp, token_t *tok) {
   *tok = mktoken(sp, TOK_LIT);
   const char *p = sp->cur;
-  while (p < sp->endp && (isalnum(*p) || *p == '_' || *p == '-')) {
+  while (p < sp->endp &&
+         (is_ascii_alnum(*p) || *p == '_' || *p == '-')) {
     p++;
   }
   tok->str.len = p - tok->str.ptr;

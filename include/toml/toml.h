@@ -81,7 +81,8 @@ struct toml_result_t {
  * using toml_free() eventually.
  *
  * IMPORTANT: src[] must be a NUL terminated string! The len parameter
- * does not include the NUL terminator.
+ * does not include the NUL terminator. Returns a failed result if
+ * src is nullptr or len is negative.
  */
 [[nodiscard]] extern toml_result_t toml_parse(const char *src, int len);
 
@@ -89,13 +90,14 @@ struct toml_result_t {
  * Parse a toml file. Returns a toml_result which must be freed
  * using toml_free() eventually.
  *
- * IMPORTANT: you are still responsible to fclose(fp).
+ * IMPORTANT: you are still responsible to fclose(fp). Returns a failed
+ * result if fp is nullptr.
  */
 [[nodiscard]] extern toml_result_t toml_parse_file(FILE *fp);
 
 /**
  * Parse a toml file. Returns a toml_result which must be freed
- * using toml_free() eventually.
+ * using toml_free() eventually. Returns a failed result if fname is nullptr.
  */
 [[nodiscard]] extern toml_result_t toml_parse_file_ex(const char *fname);
 
@@ -106,7 +108,7 @@ extern void toml_free(toml_result_t result);
 
 /**
  * Find a key in a toml_table. Return the value of the key if found,
- * or a TOML_UNKNOWN otherwise.
+ * or a TOML_UNKNOWN otherwise. A nullptr key is rejected.
  */
 [[nodiscard]] extern toml_datum_t toml_get(toml_datum_t table, const char *key);
 
@@ -115,7 +117,8 @@ extern void toml_free(toml_result_t result);
  * found, or a TOML_UNKNOWN otherwise.
  *
  * Note: the multipart-key is separated by DOT, and must not have any escape
- * chars. The maximum length of the multipart_key must not exceed 127 bytes.
+ * chars. A nullptr key is rejected. The maximum length of the multipart_key
+ * must not exceed 127 bytes.
  */
 [[nodiscard]] extern toml_datum_t toml_seek(toml_datum_t table,
                                             const char *multipart_key);
@@ -176,6 +179,7 @@ struct toml_option_t {
 
 /**
  * Set toml options globally. Do this ONLY IF you are not satisfied with the
- * defaults.
+ * defaults. Null allocator hooks are replaced with the default realloc/free
+ * pair.
  */
 extern void toml_set_option(toml_option_t opt);
