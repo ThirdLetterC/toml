@@ -30,9 +30,7 @@ static toml_option_t toml_option = {false, realloc, free};
 
 static inline size_t align8(size_t x) { return (((x) + 7U) & ~((size_t)7)); }
 
-static inline bool is_ctype_arg(int ch) {
-  return 0 <= ch && ch <= UCHAR_MAX;
-}
+static inline bool is_ctype_arg(int ch) { return 0 <= ch && ch <= UCHAR_MAX; }
 
 static inline bool is_ascii_alnum(int ch) {
   return is_ctype_arg(ch) && isalnum((unsigned char)ch);
@@ -67,8 +65,8 @@ static inline bool grow_parse_buffer(int current, int *next) {
   if (current < 0 || current >= INT_MAX - 1) {
     return false;
   }
-  size_t grown = (size_t)current + ((size_t)current / 2U) + 1'000U;
-  if (grown > (size_t)(INT_MAX - 1)) {
+  size_t grown = (size_t)current + ((size_t)current / 2U) +
+                 1'000U; if (grown > (size_t)(INT_MAX - 1)) {
     grown = (size_t)(INT_MAX - 1);
   }
   *next = (int)grown;
@@ -2407,8 +2405,8 @@ static bool is_valid_timezone(int minute) {
   }
   toktyp = TOK_DATE;
   p += n;
-  if (!((p[0] == 'T' || p[0] == ' ' || p[0] == 't') &&
-        is_ascii_digit(p[1]) && is_ascii_digit(p[2]) && p[3] == ':')) {
+  if (!((p[0] == 'T' || p[0] == ' ' || p[0] == 't') && is_ascii_digit(p[1]) &&
+        is_ascii_digit(p[2]) && p[3] == ':')) {
     goto done;  // date only
   }
 
@@ -2752,8 +2750,7 @@ static bool test_number(const char *p, const char *endp) {
 [[nodiscard]] static int scan_literal(scanner_t *sp, token_t *tok) {
   *tok = mktoken(sp, TOK_LIT);
   const char *p = sp->cur;
-  while (p < sp->endp &&
-         (is_ascii_alnum(*p) || *p == '_' || *p == '-')) {
+  while (p < sp->endp && (is_ascii_alnum(*p) || *p == '_' || *p == '-')) {
     p++;
   }
   tok->str.len = p - tok->str.ptr;
@@ -2957,8 +2954,7 @@ again:
     if ((b0 == 0xE0U && b1 < 0xA0U) || (b0 == 0xEDU && b1 >= 0xA0U)) {
       return -1;
     }
-    *ret = ((uint32_t)(b0 & 0x0FU) << 12) |
-           ((uint32_t)(b1 & 0x3FU) << 6) |
+    *ret = ((uint32_t)(b0 & 0x0FU) << 12) | ((uint32_t)(b1 & 0x3FU) << 6) |
            (uint32_t)(b2 & 0x3FU);
     return 3;
   }
@@ -2977,10 +2973,8 @@ again:
     if ((b0 == 0xF0U && b1 < 0x90U) || (b0 == 0xF4U && b1 > 0x8FU)) {
       return -1;
     }
-    *ret = ((uint32_t)(b0 & 0x07U) << 18) |
-           ((uint32_t)(b1 & 0x3FU) << 12) |
-           ((uint32_t)(b2 & 0x3FU) << 6) |
-           (uint32_t)(b3 & 0x3FU);
+    *ret = ((uint32_t)(b0 & 0x07U) << 18) | ((uint32_t)(b1 & 0x3FU) << 12) |
+           ((uint32_t)(b2 & 0x3FU) << 6) | (uint32_t)(b3 & 0x3FU);
     return 4;
   }
 

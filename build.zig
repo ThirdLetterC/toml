@@ -117,7 +117,15 @@ pub fn build(b: *std.Build) void {
         optimize,
         c_flags.items,
         "security_regression",
-        "examples/security_regression.c",
+        "testing/security_regression.c",
+    );
+    const tests = addTomlExecutable(
+        b,
+        target,
+        optimize,
+        c_flags.items,
+        "tests",
+        "testing/tests.c",
     );
 
     const run_cmd = b.addRunArtifact(simple);
@@ -132,4 +140,8 @@ pub fn build(b: *std.Build) void {
     const security_cmd = b.addRunArtifact(security);
     const security_step = b.step("security", "Run the security regression executable");
     security_step.dependOn(&security_cmd.step);
+
+    const tests_cmd = b.addRunArtifact(tests);
+    const tests_step = b.step("test", "Run the unit test executable");
+    tests_step.dependOn(&tests_cmd.step);
 }

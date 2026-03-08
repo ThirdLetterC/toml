@@ -7,7 +7,7 @@ ZIG := "zig"
 # Format all C sources with clang-format
 fmt:
   zig fmt build.zig
-  find src examples -type f \( -name '*.c' -o -name '*.h' \) -print0 | xargs -0 clang-format -i
+  find src examples testing -type f \( -name '*.c' -o -name '*.h' \) -print0 | xargs -0 clang-format -i
 
 format: fmt
 
@@ -19,9 +19,9 @@ build:
 run: build
   {{ZIG}} build run
 
-# Run the security regression executable
-security: build
-  {{ZIG}} build security
+# Run the unit tests
+test: build
+  {{ZIG}} build test
 
 # Clean build artifacts
 clean:

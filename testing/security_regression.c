@@ -32,24 +32,21 @@ static void fail(const char *name, const char *detail) {
   toml_set_option(opt);
 
   bool ok = true;
-  static const char kOverlong[] = {
-      'k', ' ', '=', ' ', '"', (char)0xC0, (char)0x80, '"', '\n', '\0'};
-  static const char kSurrogate[] = {
-      'k', ' ', '=', ' ', '"', (char)0xED, (char)0xA0, (char)0x80, '"', '\n',
-      '\0'};
-  static const char kTooHigh[] = {'k', ' ', '=', ' ', '"', (char)0xF4,
-                                  (char)0x90, (char)0x80, (char)0x80, '"',
-                                  '\n', '\0'};
+  static const char kOverlong[] = {'k',        ' ',        '=', ' ',  '"',
+                                   (char)0xC0, (char)0x80, '"', '\n', '\0'};
+  static const char kSurrogate[] = {'k', ' ',        '=',        ' ',
+                                    '"', (char)0xED, (char)0xA0, (char)0x80,
+                                    '"', '\n',       '\0'};
+  static const char kTooHigh[] = {
+      'k',        ' ',        '=',        ' ', '"',  (char)0xF4,
+      (char)0x90, (char)0x80, (char)0x80, '"', '\n', '\0'};
 
   ok &= expect_parse_failure("overlong utf8", kOverlong,
-                             (int)sizeof(kOverlong) - 1,
-                             "invalid UTF8 char");
+                             (int)sizeof(kOverlong) - 1, "invalid UTF8 char");
   ok &= expect_parse_failure("surrogate utf8", kSurrogate,
-                             (int)sizeof(kSurrogate) - 1,
-                             "invalid UTF8 char");
+                             (int)sizeof(kSurrogate) - 1, "invalid UTF8 char");
   ok &= expect_parse_failure("out of range utf8", kTooHigh,
-                             (int)sizeof(kTooHigh) - 1,
-                             "invalid UTF8 char");
+                             (int)sizeof(kTooHigh) - 1, "invalid UTF8 char");
 
   toml_set_option(toml_default_option());
   return ok;
