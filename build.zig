@@ -42,10 +42,14 @@ fn linkSanitizerLib(exe: *std.Build.Step.Compile, b: *std.Build, name: []const u
     }
 }
 
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-
+fn addTomlExecutable(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    c_flags: []const []const u8,
+    name: []const u8,
+    source: []const u8,
+) *std.Build.Step.Compile {
     const module = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -53,12 +57,32 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "simple",
+        .name = name,
         .root_module = module,
     });
 
     module.addIncludePath(b.path("src"));
     module.addIncludePath(b.path("include"));
+    module.addCSourceFiles(.{
+        .files = &.{ source, "src/toml.c" },
+        .flags = c_flags,
+    });
+
+    if (optimize == .Debug) {
+        exe.bundle_compiler_rt = true;
+        exe.bundle_ubsan_rt = true;
+        linkSanitizerLib(exe, b, "asan");
+        linkSanitizerLib(exe, b, "ubsan");
+        linkSanitizerLib(exe, b, "lsan");
+    }
+
+    b.installArtifact(exe);
+    return exe;
+}
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
     var c_flags = std.ArrayList([]const u8).empty;
     c_flags.appendSlice(b.allocator, &.{
         "-std=c23",
@@ -78,21 +102,25 @@ pub fn build(b: *std.Build) void {
             "-fsanitize=address,undefined,leak",
             "-fno-omit-frame-pointer",
         }) catch @panic("Out of memory");
-        exe.bundle_compiler_rt = true;
-        exe.bundle_ubsan_rt = true;
-        linkSanitizerLib(exe, b, "asan");
-        linkSanitizerLib(exe, b, "ubsan");
-        linkSanitizerLib(exe, b, "lsan");
     }
+    const simple = addTomlExecutable(
+        b,
+        target,
+        optimize,
+        c_flags.items,
+        "simple",
+        "examples/simple.c",
+    );
+    const security = addTomlExecutable(
+        b,
+        target,
+        optimize,
+        c_flags.items,
+        "security_regression",
+        "examples/security_regression.c",
+    );
 
-    module.addCSourceFiles(.{
-        .files = &.{ "examples/simple.c", "src/toml.c" },
-        .flags = c_flags.items,
-    });
-
-    b.installArtifact(exe);
-
-    const run_cmd = b.addRunArtifact(exe);
+    const run_cmd = b.addRunArtifact(simple);
     run_cmd.setCwd(b.path("examples"));
     if (b.args) |args| {
         run_cmd.addArgs(args);
@@ -100,4 +128,8 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the example");
     run_step.dependOn(&run_cmd.step);
+
+    const security_cmd = b.addRunArtifact(security);
+    const security_step = b.step("security", "Run the security regression executable");
+    security_step.dependOn(&security_cmd.step);
 }

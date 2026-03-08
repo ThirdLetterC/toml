@@ -92,6 +92,8 @@ available to the caller.
   usage example, not a hardened frontend.
 - `examples/repro.c` is a local reproduction helper that uses `tmpfile()`; it
   is not part of the installed library interface.
+- `examples/security_regression.c` is a local regression executable that covers
+  malformed UTF-8, invalid Unicode escapes, and bounded lookup-key handling.
 - There is currently no dedicated `tests/` directory or fuzzing harness in this
   repository.
 
@@ -101,8 +103,10 @@ Current validation that exists in-tree:
 
 - `zig build`
 - `zig build run`
+- `zig build security`
 - `just build`
 - `just run`
+- `just security`
 
 Additional validation that is reasonable for security-sensitive embedding:
 

@@ -90,6 +90,10 @@ struct ebuf_t {
 static int RETERROR(ebuf_t ebuf, int lineno, const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
+  if (!ebuf.ptr || ebuf.len <= 0) {
+    va_end(args);
+    return -1;
+  }
   char *p = ebuf.ptr;
   char *q = p + ebuf.len;
   if (lineno) {
@@ -97,6 +101,7 @@ static int RETERROR(ebuf_t ebuf, int lineno, const char *fmt, ...) {
     p += strlen(p);
   }
   vsnprintf(p, q - p, fmt, args);
+  va_end(args);
   return -1;
 }
 
@@ -153,6 +158,37 @@ struct span_t {
   int len;
 };
 
+static inline bool span_matches_cstr(span_t span, const char *s) {
+  if (!s || span.len < 0) {
+    return false;
+  }
+  auto len = (size_t)span.len;
+  for (size_t i = 0; i < len; i++) {
+    if (s[i] == '\0' || s[i] != span.ptr[i]) {
+      return false;
+    }
+  }
+  return s[len] == '\0';
+}
+
+static inline bool multipart_key_len(const char *s, size_t *len) {
+  if (!s || !len) {
+    return false;
+  }
+  constexpr size_t limit = 127;
+  for (size_t i = 0; i < limit; i++) {
+    if (s[i] == '\0') {
+      *len = i;
+      return true;
+    }
+  }
+  return false;
+}
+
+static inline bool is_unicode_scalar(uint32_t code) {
+  return code <= 0x10FFFFU && !(0xD800U <= code && code <= 0xDFFFU);
+}
+
 /* Represents a multi-part key */
 static constexpr int KEYPARTMAX = 10;
 typedef struct keypart_t keypart_t;
@@ -208,6 +244,8 @@ struct scanner_state_t {
   scanner_t *sp;
   const char *cur;  // points into scanner_t::src[]
   int lineno;       // current line number
+  int bracket_level;
+  int brace_level;
 };
 
 // A scan token
@@ -687,7 +725,8 @@ bail:
     const char **pkey = datum.u.tab.key;
     toml_datum_t *pvalue = datum.u.tab.value;
     for (int i = 0; i < n; i++) {
-      if (0 == strcmp(pkey[i], key)) {
+      span_t entry = {.ptr = pkey[i], .len = datum.u.tab.len[i]};
+      if (span_matches_cstr(entry, key)) {
         return pvalue[i];
       }
     }
@@ -709,11 +748,12 @@ bail:
   }
 
   char buf[128];
-  int bufsz = strlen(multipart_key) + 1;
-  if (bufsz >= (int)sizeof(buf)) {
+  size_t key_len = 0;
+  if (!multipart_key_len(multipart_key, &key_len)) {
     return DATUM_ZERO;
   }
-  memcpy(buf, multipart_key, bufsz);
+  memcpy(buf, multipart_key, key_len);
+  buf[key_len] = '\0';
 
   // go through the multipart name part by part.
   char *p = buf;
@@ -884,8 +924,7 @@ toml_result_t toml_parse(const char *src, int len) {
                  "invalid UTF8 char on line %d", line);
         goto bail;
       }
-      if (0xD800 <= ch && ch <= 0xDFFF) {
-        // explicitly prohibit surrogates (non-scalar unicode code point)
+      if (!is_unicode_scalar(ch)) {
         snprintf(result.errmsg, sizeof(result.errmsg),
                  "invalid UTF8 char \\u%04x on line %d", ch, line);
         goto bail;
@@ -1774,7 +1813,7 @@ bail:
         char buf[3];
         memcpy(buf, p + 2, 2);
         buf[2] = 0;
-        int32_t ucs = strtol(buf, nullptr, 16);
+        auto ucs = (uint32_t)strtoul(buf, nullptr, 16);
         int n = ucs_to_utf8(ucs, dst);
         if (n < 0) {
           return RETERROR(pp->ebuf, tok.lineno,
@@ -1790,9 +1829,8 @@ bail:
         int sz = (p[1] == 'u' ? 4 : 8);
         memcpy(buf, p + 2, sz);
         buf[sz] = 0;
-        int32_t ucs = strtol(buf, nullptr, 16);
-        if (0xD800 <= ucs && ucs <= 0xDFFF) {
-          // explicitly prohibit surrogates (non-scalar unicode code point)
+        auto ucs = (uint32_t)strtoul(buf, nullptr, 16);
+        if (!is_unicode_scalar(ucs)) {
           return RETERROR(pp->ebuf, tok.lineno, "invalid UTF8 char \\u%04x",
                           ucs);
         }
@@ -2729,6 +2767,8 @@ static scanner_state_t scan_mark(scanner_t *sp) {
   mark.sp = sp;
   mark.cur = sp->cur;
   mark.lineno = sp->lineno;
+  mark.bracket_level = sp->bracket_level;
+  mark.brace_level = sp->brace_level;
   return mark;
 }
 
@@ -2737,6 +2777,8 @@ static void scan_restore(scanner_t *sp, scanner_state_t mark) {
   assert(mark.sp == sp);
   sp->cur = mark.cur;
   sp->lineno = mark.lineno;
+  sp->bracket_level = mark.bracket_level;
+  sp->brace_level = mark.brace_level;
 }
 
 // Return the next token
@@ -2840,6 +2882,9 @@ again:
       }
       break;
     case TOK_RBRACK:
+      if (sp->bracket_level <= 0) {
+        return RETERROR(sp->ebuf, sp->lineno, "unexpected right-bracket");
+      }
       sp->bracket_level--;
       break;
     case TOK_LBRACE:
@@ -2849,6 +2894,9 @@ again:
       }
       break;
     case TOK_RBRACE:
+      if (sp->brace_level <= 0) {
+        return RETERROR(sp->ebuf, sp->lineno, "unexpected right-brace");
+      }
       sp->brace_level--;
       break;
     default:
@@ -2874,90 +2922,66 @@ again:
  * Return #bytes consumed or -1 on failure.
  */
 [[nodiscard]] static int utf8_to_ucs(const char *orig, int len, uint32_t *ret) {
+  if (!orig || !ret || len <= 0) {
+    return -1;
+  }
+
   const unsigned char *buf = (const unsigned char *)orig;
-  unsigned i = *buf++;
-  uint32_t v;
-
-  /* 0x00000000 - 0x0000007F:
-     0xxxxxxx
-  */
-  if (0 == (i >> 7)) {
-    if (len < 1) return -1;
-    v = i;
-    return *ret = v, 1;
-  }
-  /* 0x00000080 - 0x000007FF:
-     110xxxxx 10xxxxxx
-  */
-  if (0x6 == (i >> 5)) {
-    if (len < 2) return -1;
-    v = i & 0x1f;
-    for (int j = 0; j < 1; j++) {
-      i = *buf++;
-      if (0x2 != (i >> 6)) return -1;
-      v = (v << 6) | (i & 0x3f);
-    }
-    return *ret = v, (const char *)buf - orig;
+  auto b0 = buf[0];
+  if (b0 <= 0x7FU) {
+    *ret = b0;
+    return 1;
   }
 
-  /* 0x00000800 - 0x0000FFFF:
-     1110xxxx 10xxxxxx 10xxxxxx
-  */
-  if (0xE == (i >> 4)) {
-    if (len < 3) return -1;
-    v = i & 0x0F;
-    for (int j = 0; j < 2; j++) {
-      i = *buf++;
-      if (0x2 != (i >> 6)) return -1;
-      v = (v << 6) | (i & 0x3f);
+  if (0xC2U <= b0 && b0 <= 0xDFU) {
+    if (len < 2) {
+      return -1;
     }
-    return *ret = v, (const char *)buf - orig;
+    auto b1 = buf[1];
+    if ((b1 & 0xC0U) != 0x80U) {
+      return -1;
+    }
+    *ret = ((uint32_t)(b0 & 0x1FU) << 6) | (uint32_t)(b1 & 0x3FU);
+    return 2;
   }
 
-  /* 0x00010000 - 0x001FFFFF:
-     11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-  */
-  if (0x1E == (i >> 3)) {
-    if (len < 4) return -1;
-    v = i & 0x07;
-    for (int j = 0; j < 3; j++) {
-      i = *buf++;
-      if (0x2 != (i >> 6)) return -1;
-      v = (v << 6) | (i & 0x3f);
+  if (0xE0U <= b0 && b0 <= 0xEFU) {
+    if (len < 3) {
+      return -1;
     }
-    return *ret = v, (const char *)buf - orig;
+    auto b1 = buf[1];
+    auto b2 = buf[2];
+    if ((b1 & 0xC0U) != 0x80U || (b2 & 0xC0U) != 0x80U) {
+      return -1;
+    }
+    if ((b0 == 0xE0U && b1 < 0xA0U) || (b0 == 0xEDU && b1 >= 0xA0U)) {
+      return -1;
+    }
+    *ret = ((uint32_t)(b0 & 0x0FU) << 12) |
+           ((uint32_t)(b1 & 0x3FU) << 6) |
+           (uint32_t)(b2 & 0x3FU);
+    return 3;
   }
 
-  if (0) {
-    // NOTE: these code points taking more than 4 bytes are not supported
-
-    /* 0x00200000 - 0x03FFFFFF:
-       111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
-    */
-    if (0x3E == (i >> 2)) {
-      if (len < 5) return -1;
-      v = i & 0x03;
-      for (int j = 0; j < 4; j++) {
-        i = *buf++;
-        if (0x2 != (i >> 6)) return -1;
-        v = (v << 6) | (i & 0x3f);
-      }
-      return *ret = v, (const char *)buf - orig;
+  if (0xF0U <= b0 && b0 <= 0xF4U) {
+    if (len < 4) {
+      return -1;
     }
-
-    /* 0x04000000 - 0x7FFFFFFF:
-       1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
-    */
-    if (0x7e == (i >> 1)) {
-      if (len < 6) return -1;
-      v = i & 0x01;
-      for (int j = 0; j < 5; j++) {
-        i = *buf++;
-        if (0x2 != (i >> 6)) return -1;
-        v = (v << 6) | (i & 0x3f);
-      }
-      return *ret = v, (const char *)buf - orig;
+    auto b1 = buf[1];
+    auto b2 = buf[2];
+    auto b3 = buf[3];
+    if ((b1 & 0xC0U) != 0x80U || (b2 & 0xC0U) != 0x80U ||
+        (b3 & 0xC0U) != 0x80U) {
+      return -1;
     }
+    if ((b0 == 0xF0U && b1 < 0x90U) || (b0 == 0xF4U && b1 > 0x8FU)) {
+      return -1;
+    }
+    *ret = ((uint32_t)(b0 & 0x07U) << 18) |
+           ((uint32_t)(b1 & 0x3FU) << 12) |
+           ((uint32_t)(b2 & 0x3FU) << 6) |
+           (uint32_t)(b3 & 0x3FU);
+    return 4;
   }
 
   return -1;
@@ -2969,20 +2993,8 @@ again:
  * -1 on error.
  */
 [[nodiscard]] static int ucs_to_utf8(uint32_t code, char buf[4]) {
-  /* http://stackoverflow.com/questions/6240055/manually-converting-unicode-codepoints-into-utf-8-and-utf-16
-   */
-  /* The UCS code values 0xd800–0xdfff (UTF-16 surrogates) as well
-   * as 0xfffe and 0xffff (UCS noncharacters) should not appear in
-   * conforming UTF-8 streams.
-   */
-  /*
-   *  https://github.com/toml-lang/toml-test/issues/165
-   *  [0xd800, 0xdfff] and [0xfffe, 0xffff] are implicitly allowed by TOML, so
-   * we disable the check.
-   */
-  if (0) {
-    if (0xd800 <= code && code <= 0xdfff) return -1;
-    if (0xfffe <= code && code <= 0xffff) return -1;
+  if (!buf || !is_unicode_scalar(code)) {
+    return -1;
   }
 
   /* 0x00000000 - 0x0000007F:
@@ -3012,10 +3024,10 @@ again:
     return 3;
   }
 
-  /* 0x00010000 - 0x001FFFFF:
+  /* 0x00010000 - 0x0010FFFF:
      11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
   */
-  if (code <= 0x001FFFFF) {
+  if (code <= 0x0010FFFF) {
     buf[0] = (unsigned char)(0xf0 | (code >> 18));
     buf[1] = (unsigned char)(0x80 | ((code >> 12) & 0x3f));
     buf[2] = (unsigned char)(0x80 | ((code >> 6) & 0x3f));

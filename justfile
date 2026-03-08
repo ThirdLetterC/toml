@@ -19,6 +19,10 @@ build:
 run: build
   {{ZIG}} build run
 
+# Run the security regression executable
+security: build
+  {{ZIG}} build security
+
 # Clean build artifacts
 clean:
   rm -rf zig-cache zig-out examples/simple

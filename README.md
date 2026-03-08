@@ -101,6 +101,7 @@ With `just`:
 ```bash
 just build
 just run
+just security
 ```
 
 Manual build:
